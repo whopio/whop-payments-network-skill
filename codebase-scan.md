@@ -2,7 +2,7 @@
 
 Run this prompt in Cursor, Claude Code, or any AI coding tool. It will analyze your codebase and produce a structured report that Whop's team uses to generate a tailored integration guide for your platform.
 
-**How to use:** Copy everything below the line into your AI tool and run it against your project's root directory. Send the output back to your Whop contact.
+**How to use:** Copy everything below the line into your AI tool and run it against your project's root directory. It will save a `whop-integration-scan.md` file to your repo root. Send that file back to your Whop contact.
 
 ---
 
@@ -145,7 +145,7 @@ Count the scope of work to understand migration complexity:
 
 ## Output format
 
-Produce the report in exactly this format:
+Save the report to `whop-integration-scan.md` in the repo root. Use exactly this format:
 
 ```
 # Codebase Analysis for Whop Integration
