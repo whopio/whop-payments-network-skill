@@ -317,6 +317,29 @@ const link = await client.accountLinks.create({
 
 ## 8. Payouts
 
+### Funding Your Platform Balance (Top-ups)
+
+Before you can send transfers to connected accounts, your platform needs a positive balance. Use the Top-ups API to add funds by charging a saved payment method. **Top-ups have no fees.**
+
+```typescript
+// 1. First, save a payment method via the Whop Dashboard (Settings > Payment Methods)
+// 2. Then top up programmatically:
+const topup = await client.topups.create({
+  company_id: "biz_your_platform",
+  amount: 50000, // $500.00 in cents
+  currency: "usd",
+  payment_method_id: "pm_saved_method_id",
+});
+// Listen for payment.succeeded webhook to confirm
+```
+
+**Three ways money enters a platform:**
+1. **Top-ups** — charge a saved payment method (ACH, card). Best for platforms that collect funds externally (wire, invoice) and need to fund their Whop balance for payouts.
+2. **Direct charges** — customers pay connected accounts directly, platform takes an `application_fee_amount`. Money flows through checkout.
+3. **Transfers model** — customers pay the platform via checkout, platform distributes to connected accounts via `transfers.create()`.
+
+See [Add funds to your balance](https://docs.whop.com/developer/platforms/add-funds-to-your-balance) for full guide.
+
 ### Embedded Payout Components (React)
 
 ```tsx
