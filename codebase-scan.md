@@ -287,3 +287,5 @@ Save the report to `whop-integration-scan.md` in the repo root. Use exactly this
 }
 ​```
 ```
+
+After saving the file, tell the user: "Done! The file `whop-integration-scan.md` has been saved to your repo root. Send this file back to your Whop contact and they'll use it to generate your tailored integration guide."
