@@ -5,9 +5,9 @@ description: Integrate the Whop Payments Network into your platform — pay-ins,
 
 # Whop Payments Network Integration
 
-Whop provides a full payments network: accept payments (pay-ins), send payouts, embed checkout and wallet components, handle webhooks, and integrate chat. This skill covers the patterns you need to integrate Whop into any platform.
+Whop provides a full payments network: accept payments (pay-ins), send payouts, embed checkout and wallet components, handle webhooks, manage connected accounts, and send notifications. This skill covers the patterns you need to integrate Whop into any platform.
 
-## SDK Packages
+## 1. SDK Packages
 
 | Package | Purpose | Install |
 |---------|---------|---------|
@@ -15,219 +15,348 @@ Whop provides a full payments network: accept payments (pay-ins), send payouts, 
 | `whop-sdk` | Server-side API client (Python) | `pip install whop-sdk` |
 | `whop_sdk` | Server-side API client (Ruby) | `gem install whop_sdk` |
 | `@whop/checkout` | Embedded checkout React component | `npm install @whop/checkout` |
-| `@whop/embedded-components-react-js` | Embedded payout/wallet/chat components (React) | `npm install @whop/embedded-components-react-js` |
+| `@whop/embedded-components-react-js` | Embedded payout/wallet/KYC/chat components (React) | `npm install @whop/embedded-components-react-js` |
 | `@whop/embedded-components-vanilla-js` | Embedded components (Vanilla JS) | `npm install @whop/embedded-components-vanilla-js` |
 
-## API Authentication
+## 2. SDK Setup
 
 Base URL: `https://api.whop.com/api/v1`
-
-All authenticated requests use Bearer token in the `Authorization` header:
-
-```bash
-curl https://api.whop.com/api/v1/payments?company_id=biz_xxx \
-  -H "Authorization: Bearer YOUR_API_KEY"
-```
-
-### Key Types
-
-| Type | When to use | How to get |
-|------|-------------|------------|
-| **Company API Key** | Access your own company's data, or connected accounts under your platform | Dashboard > Developer > Company API Keys > Create |
-| **App API Key** | Access data on companies that installed your app | Dashboard > Developer > Create App > Environment Variables > `WHOP_API_KEY` |
-| **OAuth Token** | Act on behalf of a specific user (sign-in with Whop) | OAuth 2.1 + PKCE flow. See [OAuth guide](https://docs.whop.com/developer/guides/oauth) |
-
-### SDK Initialization
 
 ```typescript
 import Whop from "@whop/sdk";
 
+// Company API Key — access your own company's data or connected accounts
 const client = new Whop({
-  apiKey: process.env.WHOP_API_KEY,      // required
-  appID: "app_xxxxxxxxxxxxxx",           // only for app API keys
+  apiKey: process.env.WHOP_API_KEY,
+  // appID is NOT required for Company API Keys
+});
+
+// App API Key — access data on companies that installed your app
+const appClient = new Whop({
+  apiKey: process.env.WHOP_API_KEY,
+  appID: "app_xxxxxxxxxxxxxx",
 });
 ```
 
-```python
-from whop_sdk import Whop
+For webhook verification, add the webhook secret:
 
-client = Whop(api_key="your_api_key")
+```typescript
+const client = new Whop({
+  apiKey: process.env.WHOP_API_KEY,
+  webhookKey: btoa(process.env.WHOP_WEBHOOK_SECRET || ""),
+});
 ```
 
-```ruby
-require "whop_sdk"
+## 3. Authentication
 
-whop = WhopSDK::Client.new(api_key: ENV["WHOP_API_KEY"])
+### API Key Types
+
+| Type | When to use | How to get |
+|------|-------------|------------|
+| **Company API Key** | Your own company data, connected accounts, platform operations | Dashboard > Developer > Company API Keys |
+| **App API Key** | Access data on companies that installed your app | Dashboard > Developer > Create App > Env Vars |
+| **OAuth Token** | Act on behalf of a specific user | OAuth 2.1 + PKCE flow |
+
+### OAuth / NextAuth v5 OIDC
+
+Key config: `type: "oidc"`, `issuer: "https://api.whop.com"`, `token_endpoint_auth_method: "none"`, `id_token_signed_response_alg: "ES256"`, `checks: ["pkce", "nonce"]`. Profile fields: `sub`, `name`, `email`, `picture`, `username`.
+
+### Admin Authorization
+
+```typescript
+const access = await client.users.checkAccess(companyId, { id: userId });
 ```
 
-## Quick Decision Guide
+## 4. Architecture Patterns
 
-| Need | Embedded (in your UI) | Hosted (redirect to Whop) |
-|------|----------------------|--------------------------|
-| **Checkout** | `<WhopCheckoutEmbed>` from `@whop/checkout/react` or Vanilla JS loader | Create a plan, redirect to `plan.purchase_url` |
-| **Payouts dashboard** | `@whop/embedded-components-react-js` wallet elements | Create account link with `use_case: "hosted_payouts"` |
-| **KYC onboarding** | N/A — always hosted | Create account link with `use_case: "hosted_kyc"` |
-| **Chat** | `<ChatElement>` from `@whop/embedded-components-react-js` | N/A |
+### Pattern A: Stateless / No-Database Architecture
 
-## Payment Integration (Pay-ins)
+Use Whop entities as your datastore instead of running your own database:
+
+| Your concept | Whop entity | Store custom data via |
+|--------------|-------------|----------------------|
+| User accounts | Companies | `metadata` on company |
+| Listings / catalog items | Products | `description` (can store JSON) |
+| Pricing / variants | Plans | plan fields + `metadata` |
+| Purchases / bookings | Memberships | membership lookup |
+
+This works well for marketplaces, booking platforms, and listing sites where Whop handles all transactional state.
+
+### Pattern B: Two-Sided Marketplace (Connected Accounts)
+
+Each vendor/creator gets a child company. Platform takes `application_fee_amount` on checkouts:
+
+```typescript
+const vendor = await client.companies.create({
+  parent_company_id: "biz_yourplatform",
+  email: "vendor@example.com",
+  title: "Vendor Store",
+  metadata: { vendor_tier: "gold" },
+});
+
+const checkout = await client.checkoutConfigurations.create({
+  company_id: vendor.id,
+  mode: "payment",
+  redirect_url: "https://yourplatform.com/complete",
+  plan: {
+    company_id: vendor.id, product_id: "prod_xxx",
+    initial_price: 5000, plan_type: "one_time", currency: "usd",
+    visibility: "hidden", release_method: "buy_now",
+    application_fee_amount: 500, // must be > 0 AND < total
+  },
+});
+// Dynamic fees: Math.round(price * (tier === "gold" ? 0.05 : 0.10))
+```
+
+### Pattern C: Platform Treasury Model
+
+All payments go to the platform. Platform distributes via transfers after admin approval:
+
+```typescript
+// 1. Checkout to platform (no application_fee)
+const checkout = await client.checkoutConfigurations.create({
+  company_id: "biz_yourplatform",
+  plan: { initial_price: 5000, plan_type: "one_time" },
+});
+// 2. Check balance
+const ledger = await client.ledgerAccounts.retrieve("biz_yourplatform");
+// 3. Transfer to vendor
+const transfer = await client.transfers.create({
+  amount: 4500, currency: "usd",         // amount in CENTS
+  origin_id: "biz_yourplatform", destination_id: "biz_vendor",
+  metadata: { order_id: "order_123" }, notes: "Payout for order #123",
+  idempotence_key: "transfer_order_123", // prevents duplicates
+});
+```
+
+## 5. Products & Plans
+
+### Products API
+
+Products are the catalog layer above plans. A product has multiple plans (pricing variants).
+
+```typescript
+const product = await client.products.create({
+  company_id: "biz_xxx",
+  title: "Premium Course",
+  description: JSON.stringify({ category: "education", level: "advanced" }), // can store JSON
+  visibility: "visible", // or "hidden"
+});
+await client.products.update(product.id, { title: "Updated Title" });
+const products = await client.products.list({ company_id: "biz_xxx" });
+```
+
+### Plans API
+
+```typescript
+// One-time payment plan
+const plan = await client.plans.create({
+  company_id: "biz_xxx",
+  product_id: "prod_xxx",
+  initial_price: 2999,     // $29.99
+  plan_type: "one_time",
+  currency: "usd",
+  visibility: "visible",   // or "hidden" for checkout-only plans
+  release_method: "buy_now",
+});
+
+// Subscription plan
+const subPlan = await client.plans.create({
+  company_id: "biz_xxx",
+  product_id: "prod_xxx",
+  plan_type: "renewal",
+  initial_price: 999,
+  renewal_price: 999,
+  billing_period: 30,       // days
+  currency: "usd",
+});
+
+// Limited stock plan (inventory)
+const limitedPlan = await client.plans.create({
+  company_id: "biz_xxx",
+  product_id: "prod_xxx",
+  initial_price: 4999,
+  plan_type: "one_time",
+  stock: 100,               // sold out after 100 purchases
+});
+
+console.log(plan.purchase_url); // shareable checkout link
+```
+
+### Async Iteration for Paginated Results
+
+All `.list()` methods return async iterators:
+
+```typescript
+for await (const product of await client.products.list({ company_id: "biz_xxx" })) {
+  console.log(product.title);
+}
+
+for await (const company of await client.companies.list({ parent_company_id: "biz_xxx" })) {
+  console.log(company.title, company.metadata);
+}
+```
+
+## 6. Checkout
 
 ### Option A: Checkout Links (Simplest)
 
-Create a plan to get a shareable `purchase_url`:
-
-```typescript
-const plan = await client.plans.create({
-  company_id: "biz_xxxxxxxxxxxxx",
-  access_pass_id: "pass_xxxxxxxxxxxxx",
-  initial_price: 10.0,
-  plan_type: "one_time", // or "renewal" for subscriptions
-});
-
-console.log(plan.purchase_url); // redirect customers here
-```
+Create a plan, redirect to `plan.purchase_url`. Sandbox: `https://sandbox.whop.com/checkout/{plan.id}`.
 
 ### Option B: Embedded Checkout (Custom UI)
 
-Two-step process: create a checkout configuration server-side, render the component client-side.
-
-**Step 1 — Server: Create checkout configuration**
+**Server — create checkout configuration:**
 
 ```typescript
-const checkoutConfig = await client.checkoutConfigurations.create({
-  company_id: "biz_xxxxxxxxxxxxx",
+const config = await client.checkoutConfigurations.create({
+  company_id: "biz_xxx",
+  mode: "payment",
+  redirect_url: "https://yoursite.com/complete",
   plan: {
-    initial_price: 10.0,
+    company_id: "biz_xxx",
+    product_id: "prod_xxx",
+    initial_price: 1000,
     plan_type: "one_time",
+    currency: "usd",
+    visibility: "hidden",
+    release_method: "buy_now",
+    application_fee_amount: 100, // optional platform fee
   },
-  metadata: { order_id: "order_12345" },
+  metadata: { order_id: "order_123" },
 });
-// Pass checkoutConfig.id to the client as sessionId
+// config.id = sessionId for client
+// config.purchase_url = direct link
+// config.plan.id = created plan ID
 ```
 
-**Step 2 — Client: Render checkout**
+**Client — render embed:**
 
 ```tsx
 import { WhopCheckoutEmbed } from "@whop/checkout/react";
 
-export function Checkout({ sessionId }: { sessionId: string }) {
-  return (
-    <WhopCheckoutEmbed
-      sessionId={sessionId}
-      returnUrl="https://yoursite.com/checkout/complete"
-      onComplete={(paymentId) => {
-        console.log("Payment complete:", paymentId);
-      }}
-    />
-  );
-}
-```
-
-Or use `planId` directly without a checkout configuration:
-
-```tsx
 <WhopCheckoutEmbed
-  planId="plan_XXXXXXXXX"
-  returnUrl="https://yoursite.com/checkout/complete"
+  sessionId={config.id}
+  returnUrl="https://yoursite.com/complete"
+  environment="production"  // or "sandbox"
+  themeOptions={{ accentColor: "#FF6243", highContrast: true }}
+  onComplete={(paymentId) => console.log("Paid:", paymentId)}
 />
 ```
 
-### Option C: Vanilla JS Checkout (Non-React)
+Or use `planId` directly (no server config needed):
 
-Add the loader script and a `div` with data attributes:
+```tsx
+<WhopCheckoutEmbed
+  planId="plan_xxx"
+  returnUrl="https://yoursite.com/complete"
+  environment="sandbox"
+/>
+```
+
+### Option C: Aggregated Cart Checkout
+
+Aggregate cart total into one checkout, serialize items in `metadata.cart`:
+
+```typescript
+const total = cartItems.reduce((sum, i) => sum + i.price * i.qty, 0);
+const config = await client.checkoutConfigurations.create({
+  company_id: "biz_xxx",
+  plan: { initial_price: total, plan_type: "one_time" },
+  metadata: { cart: JSON.stringify(cartItems) },
+});
+```
+
+### Option D: Vanilla JS Checkout
 
 ```html
 <script async defer src="https://js.whop.com/static/checkout/loader.js"></script>
-
 <div
-  data-whop-checkout-plan-id="plan_XXXXXXXXX"
-  data-whop-checkout-return-url="https://yoursite.com/checkout/complete"
+  data-whop-checkout-plan-id="plan_xxx"
+  data-whop-checkout-return-url="https://yoursite.com/complete"
 ></div>
 ```
 
 See `references/checkout-embed.md` for full prop reference, programmatic controls, and sandbox testing.
 
-## Payout Integration
-
-### Embedded Wallet Components
-
-Use `@whop/embedded-components-react-js` to embed payout dashboards (balance, withdrawal, payout methods) directly in your platform.
-
-Requires an **access token** created server-side:
+## 7. Connected Accounts
 
 ```typescript
-const token = await client.accessTokens.create({
-  company_id: "biz_xxxxxxxxxxxxx",  // the sub-merchant's company
+// Create
+const company = await client.companies.create({
+  parent_company_id: "biz_yourplatform",
+  email: "creator@example.com", title: "Creator Store",
+  metadata: { tier: "free" },
 });
-// Pass token to client-side components
+// List (async iterator)
+for await (const co of await client.companies.list({ parent_company_id: "biz_yourplatform" })) {
+  console.log(co.id, co.title);
+}
+// Update metadata (SDK typing gap — use type cast)
+await (client.companies as any).update(company.id, { metadata: { tier: "premium" } });
 ```
 
-### Hosted Payouts Dashboard
-
-For a fully hosted experience, create an account link:
+### Account Onboarding & KYC
 
 ```typescript
+// use_case: "hosted_kyc" | "hosted_payouts" | "account_onboarding"
 const link = await client.accountLinks.create({
-  company_id: "biz_xxxxxxxxxxxxx",
-  use_case: "hosted_payouts",
+  company_id: "biz_xxx", use_case: "hosted_kyc",
   return_url: "https://yourplatform.com/dashboard",
   refresh_url: "https://yourplatform.com/refresh",
 });
-// Redirect user to link.url
+// Redirect to link.url
 ```
 
-### Hosted KYC Onboarding
+### Ledger & Verification: `await client.ledgerAccounts.retrieve("biz_xxx")` — returns balances, KYC status, payments_approval_status.
 
-```typescript
-const link = await client.accountLinks.create({
-  company_id: "biz_xxxxxxxxxxxxx",
-  use_case: "hosted_kyc",
-  return_url: "https://yourplatform.com/dashboard",
-  refresh_url: "https://yourplatform.com/refresh",
-});
-```
+## 8. Payouts
 
-See `references/payouts.md` for embedded component setup and the interactive playground.
-
-## Chat SDK
-
-Embed real-time chat in your platform using React, Vanilla JS, or Swift.
-
-**React quick start:**
+### Embedded Payout Components (React)
 
 ```tsx
-import { ChatElement, ChatSession, Elements } from "@whop/embedded-components-react-js";
+import { PayoutsSession, VerifyElement, AddPayoutMethodElement } from "@whop/embedded-components-react-js";
 import { loadWhopElements } from "@whop/embedded-components-vanilla-js";
 
-const elements = loadWhopElements();
+const elements = loadWhopElements({ environment: "production" }); // or "sandbox"
+// Server: const token = await client.accessTokens.create({ company_id: "biz_vendor" });
 
-async function getToken() {
-  const res = await fetch("/api/token");
-  return (await res.json()).token;
-}
-
-function ChatPage() {
+function VendorPayouts({ token, companyId }: { token: string; companyId: string }) {
   return (
-    <Elements elements={elements}>
-      <ChatSession token={getToken}>
-        <ChatElement
-          options={{ channelId: "chat_XXXXXXXXXXXXXX" }}
-          style={{ height: "100dvh", width: "100%" }}
-        />
-      </ChatSession>
-    </Elements>
+    <PayoutsSession token={token} companyId={companyId} redirectUrl="/dashboard">
+      <VerifyElement />
+      <AddPayoutMethodElement />
+      {/* Also: BalanceElement, WithdrawElement, PayoutMethodsElement */}
+    </PayoutsSession>
   );
 }
 ```
 
-See `references/chat-sdk.md` for Vanilla JS, Swift, and full configuration.
+### Check Payout Method
 
-## Webhook Handling
+```typescript
+const methods = await client.payoutMethods.list({ company_id: "biz_xxx" });
+const hasDefault = methods.some((m: any) => m.is_default);
+```
 
-Listen for events like `payment.succeeded`, `membership.activated`, `membership.deactivated`.
+### Transfers (cents) & Withdrawals (dollars)
+
+```typescript
+// Transfers — amount in CENTS
+await client.transfers.create({
+  amount: 4500, currency: "usd",
+  origin_id: "biz_platform", destination_id: "biz_vendor",
+  metadata: { order_id: "order_123" }, notes: "Weekly payout",
+  idempotence_key: "payout_week12_vendor456",
+});
+// Withdrawals — amount in DOLLARS (different!)
+await client.withdrawals.create({ company_id: "biz_xxx", amount: 45.00 });
+```
+
+See `references/payouts.md` for hosted payouts, embedded wallet components, and the interactive playground.
+
+## 9. Webhooks
 
 **Setup:** Dashboard > Developer > Create Webhook > select events > provide URL.
-
-**Handling with SDK (Next.js example):**
 
 ```typescript
 import type { NextRequest } from "next/server";
@@ -238,46 +367,70 @@ export async function POST(request: NextRequest): Promise<Response> {
   const headers = Object.fromEntries(request.headers);
   const webhookData = whopsdk.webhooks.unwrap(body, { headers });
 
-  if (webhookData.type === "payment.succeeded") {
-    // handle payment
+  // GOTCHA: event field is `event`, not `type`
+  // GOTCHA: events may arrive with underscores: "membership_went_valid"
+  const eventType = webhookData.event.replace(/_/g, "."); // normalize
+
+  switch (eventType) {
+    case "payment.succeeded":
+      // handle payment
+      break;
+    case "membership.went.valid":
+      // handle activation
+      break;
   }
 
-  return new Response("OK", { status: 200 }); // return 2xx quickly
+  return new Response("OK", { status: 200 }); // return 2xx quickly!
 }
 ```
 
-**SDK setup with webhook secret:**
+See `references/webhooks.md` for all events, company vs app webhooks, and validation.
+
+## 10. Notifications
+
+Send push notifications to users with deep linking:
 
 ```typescript
-import { Whop } from "@whop/sdk";
-
-export const whopsdk = new Whop({
-  appID: process.env.NEXT_PUBLIC_WHOP_APP_ID,
-  apiKey: process.env.WHOP_API_KEY,
-  webhookKey: btoa(process.env.WHOP_WEBHOOK_SECRET || ""),
+await client.notifications.create({
+  company_id: "biz_xxx",
+  user_id: "user_xxx",
+  title: "Your order shipped!",
+  body: "Track your order in the app.",
+  rest_path: "/orders/order_123", // deep link path within your app
 });
 ```
 
-See `references/webhooks.md` for available events, app vs company webhooks, and validation details.
+## 11. Chat SDK
 
-## Permissions System
+Embed real-time chat via `ChatElement` inside `ChatSession` + `Elements` wrappers. See `references/chat-sdk.md` for React, Vanilla JS, and Swift examples.
 
-Apps must request permissions before accessing company data. Each API endpoint documents its required permission scopes.
+## 12. Common Gotchas
 
-**Setup flow:**
-1. Dashboard > Developer > select app > Permissions tab
-2. Add required permissions with justification
-3. Mark permissions as required or optional
-4. Save and install the app on your company
-5. Approve the permissions when prompted
+1. **Transfers use cents, Withdrawals use dollars** — `transfers.create({ amount: 4500 })` = $45.00, but `withdrawals.create({ amount: 45 })` = $45.00.
+2. **`application_fee_amount` must be > 0 AND < total price** — zero or equal-to-total will error.
+3. **Webhook `event` field, not `type`** — The webhook body uses `event` as the key. Some docs incorrectly show `type`.
+4. **Webhook events may use underscores** — `membership_went_valid` instead of `membership.went.valid`. Normalize with `.replace(/_/g, ".")`.
+5. **`returnUrl` is required for external payment methods** — Apple Pay, Google Pay, PayPal redirects fail without it.
+6. **Webhook secret must be base64-encoded** — Pass `btoa(process.env.WHOP_WEBHOOK_SECRET)` to SDK's `webhookKey`.
+7. **Return 2xx quickly from webhooks** — Whop retries on timeout. Use `waitUntil()` or background jobs for heavy processing.
+8. **Access tokens expire** — Default 1 hour, max 3 hours. Refresh before expiry for embedded components.
+9. **Company metadata SDK typing gap** — Update metadata via type cast: `(client.companies as any).update(id, { metadata })`.
+10. **SDK init without appID is valid** — Company API Keys don't need `appID`.
+11. **Checkout config response includes `purchase_url` and `plan.id`** — Use these for redirect flows or plan references.
+12. **Sandbox checkout URL** — `https://sandbox.whop.com/checkout/{planId}`.
+13. **`setupFutureUsage: "off_session"`** — Required on checkout embed when you plan to charge the user later via `chargeUser` API.
+14. **Permission re-approval** — After adding new app permissions, API calls fail with `403` until the company re-approves.
+15. **Always use idempotence keys** — On transfers and any money-movement operation to prevent duplicates.
 
-**When updating permissions:** Creators see a "Re-approve" button. Until re-approved, new permission API calls will fail — handle these errors gracefully.
+## 13. Permissions System
 
-See `references/api-reference.md` for SDK setup patterns and the MCP server.
+Apps must request permissions before accessing company data. Each API endpoint has required scopes.
 
-## MCP Server Access
+**Setup:** Dashboard > Developer > App > Permissions tab > Add permissions with justification > Install app > Approve.
 
-AI agents can access the Whop API via MCP:
+When updating permissions, creators see a "Re-approve" button. Handle `403` errors gracefully until re-approved.
+
+## 14. MCP Server Access
 
 | Transport | URL |
 |-----------|-----|
@@ -285,42 +438,7 @@ AI agents can access the Whop API via MCP:
 | SSE (Claude) | `https://mcp.whop.com/sse` |
 | Docs MCP | `https://docs.whop.com/mcp` |
 
-## Connected Accounts (Platforms)
-
-If you are a platform with sub-merchants, use your Company API key to manage connected accounts:
-
-```typescript
-// Create a connected account (sub-merchant)
-const company = await client.companies.create({
-  parent_company_id: "biz_yourplatform",
-  // ...company details
-});
-
-// List connected accounts
-const companies = await client.companies.list({
-  parent_company_id: "biz_yourplatform",
-});
-```
-
-## Common Gotchas
-
-1. **`returnUrl` is required** for embedded checkout when using external payment methods (Apple Pay, Google Pay, PayPal). Without it, redirects from payment providers will fail.
-
-2. **`setAddress` only works with `hideAddressForm`** — You must set `hideAddressForm={true}` (React) or `data-whop-checkout-hide-address="true"` (Vanilla JS) before calling `setAddress()`.
-
-3. **Sandbox vs Production** — Use `environment="sandbox"` prop and sandbox plan IDs from `sandbox.whop.com/dashboard`. Production is the default.
-
-4. **Webhook secret encoding** — Pass `btoa(process.env.WHOP_WEBHOOK_SECRET)` (base64-encoded) to the SDK's `webhookKey` option.
-
-5. **Return 2xx quickly from webhooks** — If your webhook handler takes too long, Whop will retry. Use `waitUntil()` or a background job for heavy processing.
-
-6. **Permission re-approval** — After adding new permissions to your app, API calls requiring those permissions will fail until the company re-approves. Handle `403` errors gracefully.
-
-7. **Access tokens expire** — Tokens from `accessTokens.create()` default to 1 hour, max 3 hours. Refresh before expiry for embedded components.
-
-8. **`setupFutureUsage: "off_session"`** — Required on the checkout embed when you plan to charge the user later via `chargeUser` API. Filters out incompatible payment methods.
-
-## File Reference
+## 15. Reference Files
 
 | File | Contents |
 |------|----------|

@@ -51,7 +51,20 @@ Search for payout-related code:
 
 Report what you find: provider, SDK, files involved, and what payout flows exist (individual, batch, scheduled, etc.)
 
-### 4. Data models
+### 4. Marketplace / multi-vendor architecture
+
+Determine if this is a two-sided marketplace or platform with sub-merchants:
+
+- **Connected accounts / sub-merchants:** Look for Stripe Connect (`accounts.create`, connected accounts), PayPal Commerce Platform, or any pattern where the platform creates accounts for sellers/vendors/creators
+- **Platform fee / commission structure:** Look for `application_fee`, `platform_fee`, commission calculations, revenue share logic, tiered fee rates
+- **Money flow model:** Does the platform split payments at checkout (fee split), or collect all funds and distribute later (treasury model)?
+- **Vendor onboarding:** KYC flows, identity verification, onboarding forms for sellers
+- **Multi-tenant product catalogs:** Do different vendors/sellers have their own products?
+- **Payout approval workflows:** Admin approval before releasing funds to vendors
+
+Report: Is this a marketplace? How many sides? How do funds flow? What's the fee structure?
+
+### 5. Data models
 
 Find and document the data models/schemas related to payments and users. Look in:
 
@@ -66,8 +79,9 @@ Focus on these entities (include all fields for each):
 - **Payout/Disbursement/Withdrawal** — amounts, statuses, recipient references
 - **Product/Item** — what's being sold
 - **Affiliate/Referral** — commission tracking, referral codes
+- **Vendor/Seller/Creator** — if marketplace: seller profiles, verification status, fee tiers
 
-### 5. API and routing structure
+### 6. API and routing structure
 
 Map the API surface:
 
@@ -75,7 +89,7 @@ Map the API surface:
 - **GraphQL:** Find schema definitions and resolvers related to payments, subscriptions, payouts.
 - **API versioning:** Check if there's `/api/v1/`, `/api/v2/` patterns.
 
-### 6. Authentication patterns
+### 7. Authentication patterns
 
 Identify how users authenticate:
 
@@ -84,7 +98,7 @@ Identify how users authenticate:
 - **OAuth providers:** Google, GitHub, Apple, email/password, SSO
 - **User identification:** What uniquely identifies a user? (email, UUID, external ID)
 
-### 7. Webhook handlers
+### 8. Webhook handlers
 
 Find existing webhook endpoint handlers:
 
@@ -93,7 +107,7 @@ Find existing webhook endpoint handlers:
 - How do they verify webhook signatures?
 - What side effects do they trigger? (update database, send emails, trigger workflows)
 
-### 8. Frontend component patterns
+### 9. Frontend component patterns
 
 Understand how the frontend is structured:
 
@@ -102,7 +116,7 @@ Understand how the frontend is structured:
 - **Where payment UI lives:** Find checkout pages, billing pages, subscription management, payout/wallet pages
 - **iframe usage:** Are there any existing iframe embeds? (This is relevant for Whop's embedded components)
 
-### 9. Third-party tools and integrations
+### 10. Third-party tools and integrations
 
 Search for other services and tools integrated into the codebase that the platform may want to connect to Whop:
 
@@ -117,7 +131,7 @@ For each found, report: which service, SDK/package, and how it connects to payme
 
 **Note:** Many tools (HubSpot, QuickBooks, Salesforce) may be used by the business but not integrated into the codebase. This scan catches what's in the code — the Whop team will ask about other tools separately on the call.
 
-### 10. Migration surface area
+### 11. Migration surface area
 
 Count the scope of work to understand migration complexity:
 
@@ -143,6 +157,7 @@ Produce the report in exactly this format:
 - **Current payouts:** [provider] ([X] files, [Y] API calls)
 - **Auth:** [method] with [session type]
 - **Key models:** [list]
+- **Marketplace type:** [Not a marketplace / Two-sided / Multi-vendor] — [fee model]
 - **Migration complexity:** [Low/Medium/High] — [one sentence why]
 
 ## Tech stack
@@ -154,20 +169,23 @@ Produce the report in exactly this format:
 ## Current payout integration
 [Details from section 3]
 
+## Marketplace / multi-vendor architecture
+[Details from section 4 — connected accounts, fee structure, money flow, vendor onboarding]
+
 ## Data models
-[Full schemas/field lists from section 4, with file paths]
+[Full schemas/field lists from section 5, with file paths]
 
 ## API structure
-[Route listing from section 5]
+[Route listing from section 6]
 
 ## Authentication
-[Details from section 6]
+[Details from section 7]
 
 ## Webhook handlers
-[Details from section 7, with file paths]
+[Details from section 8, with file paths]
 
 ## Frontend patterns
-[Details from section 8]
+[Details from section 9]
 
 ## Third-party integrations
 [Details from section 9 — CRMs, accounting, automation, etc.]
@@ -213,6 +231,16 @@ Produce the report in exactly this format:
       "payout_types": ["individual", "batch", "scheduled"]
     }
   ],
+  "marketplace": {
+    "is_marketplace": false,
+    "type": "none|two_sided|multi_vendor",
+    "connected_account_provider": "",
+    "fee_model": "none|application_fee_split|platform_treasury|hybrid",
+    "fee_rate": "",
+    "vendor_onboarding": "none|kyc|custom",
+    "vendor_count_estimate": 0,
+    "money_flow_notes": ""
+  },
   "data_models": [
     {
       "name": "",

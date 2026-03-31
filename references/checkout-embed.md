@@ -27,18 +27,31 @@ export default function Checkout() {
 
 ### With Checkout Configuration (Session)
 
-Create a checkout configuration server-side to attach metadata:
+Create a checkout configuration server-side to attach metadata, inline plans, and application fees:
 
 ```typescript
-// Server
+// Server — full checkout configuration with all fields
 const checkoutConfig = await client.checkoutConfigurations.create({
   company_id: "biz_xxxxxxxxxxxxx",
+  mode: "payment",
+  redirect_url: "https://yoursite.com/success",
   plan: {
+    company_id: "biz_xxxxxxxxxxxxx",
+    product_id: "prod_xxxxxxxxxxxxx",
+    currency: "usd",
     initial_price: 10.0,
     plan_type: "one_time",
+    visibility: "hidden",
+    release_method: "buy_now",
+    application_fee_amount: 2.0,  // platform fee in dollars
   },
   metadata: { order_id: "order_12345" },
 });
+
+// Response shape:
+// checkoutConfig.id — use as sessionId
+// checkoutConfig.purchase_url — direct URL
+// checkoutConfig.plan.id — created plan ID
 ```
 
 ```tsx
@@ -49,6 +62,55 @@ const checkoutConfig = await client.checkoutConfigurations.create({
   returnUrl="https://yoursite.com/checkout/complete"
   theme="light"
 />
+```
+
+### SPA Pattern (No Redirect)
+
+For single-page apps, use `skipRedirect` + `onComplete` to stay on the page:
+
+```tsx
+import { useRouter } from "next/navigation";
+
+function Checkout() {
+  const router = useRouter();
+
+  return (
+    <WhopCheckoutEmbed
+      planId="plan_XXXXXXXXX"
+      skipRedirect={true}
+      onComplete={(planId, receiptId) => {
+        router.push(`/success?receipt=${receiptId}`);
+      }}
+    />
+  );
+}
+```
+
+### Cart Aggregation Pattern
+
+For multi-item carts, aggregate items into a single checkout config with total price and metadata:
+
+```typescript
+// Server — create a checkout config for the whole cart
+const items = [
+  { name: "Widget A", price: 10.0, qty: 2 },
+  { name: "Widget B", price: 25.0, qty: 1 },
+];
+const total = items.reduce((sum, i) => sum + i.price * i.qty, 0);
+
+const checkoutConfig = await client.checkoutConfigurations.create({
+  company_id: "biz_xxxxxxxxxxxxx",
+  plan: {
+    initial_price: total,  // 45.00
+    plan_type: "one_time",
+  },
+  metadata: {
+    cart_items: JSON.stringify(items),
+    cart_total: total,
+  },
+});
+
+// Use checkoutConfig.id as sessionId on the client
 ```
 
 ### Programmatic Controls
@@ -101,6 +163,7 @@ await ref.current?.setAddress({
 | `sessionId` | `string` | No | Checkout configuration ID for metadata |
 | `returnUrl` | `string` | No | URL to redirect after external payment completes |
 | `theme` | `"light" \| "dark" \| "system"` | No | Theme for the checkout UI |
+| `themeOptions` | `{ accentColor: string, highContrast: boolean }` | No | Fine-grained theme customization |
 | `environment` | `"production" \| "sandbox"` | No | Defaults to `production` |
 | `affiliateCode` | `string` | No | Affiliate tracking code |
 | `hidePrice` | `boolean` | No | Hide the price display |
@@ -129,6 +192,8 @@ Use `environment="sandbox"` with plan IDs from [sandbox.whop.com/dashboard](http
   planId="plan_XXXXXXXXX"  // must be a sandbox plan ID
 />
 ```
+
+Sandbox checkout URL format: `https://sandbox.whop.com/checkout/{planId}`
 
 ## Vanilla JS Setup (Non-React)
 
