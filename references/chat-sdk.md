@@ -176,6 +176,27 @@ struct ContentView: View {
 |-------|-------------|
 | `.imessage` | iMessage-style bubble layout |
 
+## Messages API (Programmatic)
+
+Create DM channels and send messages programmatically via the SDK:
+
+```typescript
+// Create a DM channel between users
+const dmChannel = await client.dmChannels.create({
+  with_user_ids: [userId1, userId2],
+  company_id: "biz_xxx",
+});
+
+// Send a message
+const message = await client.messages.create({
+  channel_id: dmChannel.id,
+  content: "Hello!",
+});
+
+// Pin important messages
+await client.messages.update(message.id, { is_pinned: true });
+```
+
 ## Chat API Endpoints
 
 | Endpoint | Method | Description |

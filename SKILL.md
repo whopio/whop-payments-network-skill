@@ -61,6 +61,8 @@ const client = new Whop({
 
 Key config: `type: "oidc"`, `issuer: "https://api.whop.com"`, `token_endpoint_auth_method: "none"`, `id_token_signed_response_alg: "ES256"`, `checks: ["pkce", "nonce"]`. Profile fields: `sub`, `name`, `email`, `picture`, `username`.
 
+> **Note:** OAuth/OIDC is still marked "in development" in official docs. The NextAuth pattern works but may change.
+
 ### Admin Authorization
 
 ```typescript
@@ -134,6 +136,8 @@ const transfer = await client.transfers.create({
 ### Products API
 
 Products are the catalog layer above plans. A product has multiple plans (pricing variants).
+
+> Use `product_id` to link a plan to a product. `access_pass_id` is a legacy alias — prefer `product_id` for new integrations.
 
 ```typescript
 const product = await client.products.create({
@@ -242,6 +246,8 @@ import { WhopCheckoutEmbed } from "@whop/checkout/react";
   onComplete={(paymentId) => console.log("Paid:", paymentId)}
 />
 ```
+
+In production, `redirect_url` must be HTTPS. Localhost (HTTP) works in sandbox but will be rejected in production.
 
 Or use `planId` directly (no server config needed):
 
@@ -395,7 +401,7 @@ await client.notifications.create({
   company_id: "biz_xxx",
   user_id: "user_xxx",
   title: "Your order shipped!",
-  body: "Track your order in the app.",
+  content: "Track your order in the app.",
   rest_path: "/orders/order_123", // deep link path within your app
 });
 ```
@@ -421,6 +427,8 @@ Embed real-time chat via `ChatElement` inside `ChatSession` + `Elements` wrapper
 13. **`setupFutureUsage: "off_session"`** — Required on checkout embed when you plan to charge the user later via `chargeUser` API.
 14. **Permission re-approval** — After adding new app permissions, API calls fail with `403` until the company re-approves.
 15. **Always use idempotence keys** — On transfers and any money-movement operation to prevent duplicates.
+16. **Payout methods pagination duplicates** — Payout methods list may return duplicates during pagination — deduplicate by `.id` when consuming the full list.
+17. **Auto-withdraw after transfer** — After approving a transfer, consider auto-initiating a withdrawal to the recipient's default payout method so they don't have to manually withdraw. Note: transfers use cents, withdrawals use dollars.
 
 ## 13. Permissions System
 

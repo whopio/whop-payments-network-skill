@@ -265,6 +265,31 @@ const transfer = await client.transfers.create({
 });
 ```
 
+## Auto-Withdraw After Transfer
+
+After approving a transfer, auto-withdraw to the recipient's default payout method:
+
+```typescript
+// After approving a transfer, auto-withdraw to recipient's default payout method
+const methods = [];
+const seen = new Set<string>();
+for await (const method of await client.payoutMethods.list({ company_id: recipientCompanyId })) {
+  if (!seen.has(method.id)) {
+    seen.add(method.id);
+    methods.push(method);
+  }
+}
+const defaultMethod = methods.find(m => m.is_default);
+if (defaultMethod) {
+  await client.withdrawals.create({
+    company_id: recipientCompanyId,
+    amount: transferAmountCents / 100,  // Convert cents to dollars!
+    currency: "usd",
+    payout_method_id: defaultMethod.id,
+  });
+}
+```
+
 ## Withdrawals API
 
 Connected accounts can withdraw funds to their payout method:
@@ -316,6 +341,15 @@ async function canTransfer(companyId: string): Promise<boolean> {
   const ledger = await client.ledgerAccounts.retrieve(companyId);
 
   // 1. KYC must be verified
+  // Verification status values:
+  // "verified" — fully verified, can receive payouts
+  // "approved" — approved, can receive payouts
+  // "requires_input" — needs more info from user
+  // "resubmission_requested" — docs need resubmission
+  // "processing" — verification in progress
+  // "submitted" — submitted, awaiting review
+  // "declined" — rejected
+  // "expired" — verification expired
   const kycStatus = ledger.payout_account_details?.latest_verification?.status;
   if (kycStatus !== "verified") {
     console.log("KYC not verified:", kycStatus);
@@ -335,6 +369,12 @@ async function canTransfer(companyId: string): Promise<boolean> {
     console.log("Insufficient balance");
     return false;
   }
+
+  // Payments approval status values:
+  // "approved" — can transact
+  // "monitoring" — under review but active
+  // "pending" — awaiting approval
+  // "rejected" — cannot transact
 
   return true;
 }

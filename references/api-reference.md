@@ -200,6 +200,12 @@ const config = await client.checkoutConfigurations.create({
 const memberships = await client.memberships.list({
   company_id: "biz_xxxxxxxxxxxxxx",
 });
+
+// Cancel a membership
+await client.memberships.cancel(membershipId);
+
+// Update membership metadata
+await client.memberships.update(membershipId, { metadata: { status: "cancelled_by_host" } });
 ```
 
 ### Companies (Connected Accounts)
@@ -369,6 +375,54 @@ const link = await client.accountLinks.create({
   return_url: "https://yourplatform.com/return",
   refresh_url: "https://yourplatform.com/refresh",
 });
+```
+
+### Messages / DM Channels
+
+```typescript
+// Create a DM channel between users
+const dmChannel = await client.dmChannels.create({
+  with_user_ids: [userId1, userId2],
+  company_id: "biz_xxx",
+});
+
+// Send a message
+const message = await client.messages.create({
+  channel_id: dmChannel.id,
+  content: "Your booking is confirmed!",
+});
+
+// Pin a message
+await client.messages.update(message.id, { is_pinned: true });
+```
+
+### Charge User
+
+```typescript
+// Charge a saved payment method (requires setupFutureUsage: "off_session" on original checkout)
+const charge = await client.chargeUser({
+  company_id: "biz_xxx",
+  amount: 5000,  // cents
+  currency: "usd",
+  metadata: { order_id: "order_123" },
+  idempotence_key: "charge_order_123",
+});
+```
+
+### Fee Markups
+
+```typescript
+// List fee markups for a company
+for await (const markup of await client.feeMarkups.list({ company_id: "biz_xxx" })) {
+  console.log(markup);
+}
+```
+
+### Public User Lookup
+
+```typescript
+// Public user profile lookup (no auth required)
+const user = await client.users.retrieve("username");
 ```
 
 ### Webhooks
