@@ -1,6 +1,8 @@
 # Whop Payments Network Skill
 
-AI-assisted integration guide for the Whop Payments Network. Works with Claude Code, Cursor, Copilot, and any AI editor that supports skills.
+[![Install](https://img.shields.io/badge/npx_skills_add-whopio/whop--payments--network--skill-FA4616?style=for-the-badge)](https://skills.sh/whopio/whop-payments-network-skill)
+
+The official Whop Payments Network integration skill. AI-assisted integration guide for the Whop Payments Network. Works with Claude Code, Cursor, Copilot, and any AI editor that supports skills.
 
 ## Install
 
